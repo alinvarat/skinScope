@@ -27,7 +27,7 @@ def load_dermatology_model():
     model = AutoModelForImageClassification.from_pretrained(model_name)
     return processor, model
 
-def predict(image, processor, model):
+def predict(image, processor, model, analysis_type):
     if image.mode != "RGB":
         image = image.convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
@@ -43,10 +43,28 @@ def predict(image, processor, model):
 
     label_id_map = getattr(model.config, "id2label", {i: f"Class {i}" for i in range(num_classes)})
     results = []
+
+    # Define a human-readable map for acne levels if applicable
+    acne_label_map = {
+        "level -1": "Clear Skin",
+        "level 0": "Occasional Spots",
+        "level 1": "Mild Acne",
+        "level 2": "Moderate Acne",
+        "level 3": "Severe Acne",
+        "level 4": "Very Severe Acne"
+    }
+
     for i in range(top_prob.size(1)):
-        label = label_id_map[top_catid[0][i].item()]
+        original_label = label_id_map[top_catid[0][i].item()]
         prob = top_prob[0][i].item()
-        results.append({"label": label, "score": prob})
+
+        # Apply human-readable translation only for Acne Analysis
+        if analysis_type == "Acne Analysis":
+            display_label = acne_label_map.get(original_label, original_label)
+        else:
+            display_label = original_label
+
+        results.append({"label": display_label, "original_label": original_label, "score": prob})
     return results
 
 with st.sidebar:
@@ -92,13 +110,18 @@ if image_file is not None:
         st.subheader("📈 Analysis Results")
         if analyze_button:
             with st.spinner("Analyzing... Please wait"):
-                predictions = predict(image, processor, model)
+                # Pass analysis_type to the predict function
+                predictions = predict(image, processor, model, analysis_type)
                 with st.container(border=True):
                     top_prediction = predictions[0]
                     st.metric(label="Most Probable Type", value=top_prediction['label'], delta=f"{top_prediction['score']*100:.1f}%")
 
                 with st.expander("Show Possible Details"):
                     for p in predictions:
-                        st.write(f"- **{p['label']}**: {p['score']:.2%}")
+                        # Display both the human-readable and original labels if different
+                        if p['label'] != p['original_label']:
+                            st.write(f"- **{p['label']}** (Original: {p['original_label']}): {p['score']:.2%}")
+                        else:
+                            st.write(f"- **{p['label']}**: {p['score']:.2%}")
         else:
             st.info("Please click 'Perform Analysis' to see the results.")
